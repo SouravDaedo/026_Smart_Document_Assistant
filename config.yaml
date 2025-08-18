@@ -1,0 +1,110 @@
+# PlanQuery Configuration File
+
+# PlanQuery Configuration
+# Smart Document Assistant for Architectural Plans
+
+# Database Configuration
+database:
+  url: "postgresql://localhost/planquery"
+  pool_size: 10
+  max_overflow: 20
+  pool_timeout: 30
+  pool_recycle: 3600
+
+# API Configuration
+api:
+  host: "0.0.0.0"
+  port: 8000
+  debug: false
+  reload: false
+  workers: 1
+  cors_origins:
+    - "http://localhost:3000"
+    - "http://localhost:8080"
+  max_file_size: 104857600  # 100MB in bytes
+
+  pdf:
+    dpi: 300
+    output_format: "PNG"
+    
+  # Layout Detection
+  layout_detection:
+    model_type: "detectron2"  # detectron2, yolo, fallback
+    confidence_threshold: 0.5
+    model_path: null
+    
+  # OCR Configuration
+  ocr:
+    engine: "tesseract"  # tesseract, trocr
+    model_name: "microsoft/trocr-base-printed"
+    tesseract_config: "--oem 3 --psm 6"
+    
+  # Text Classification
+  text_classification:
+    model_type: "rules"  # rules, sklearn, transformer
+    model_path: null
+    confidence_threshold: 0.5
+
+# Search Configuration
+search:
+  # Vector Store
+  vector_store:
+    backend: "faiss"  # faiss, pgvector, qdrant, memory
+    model_name: "all-MiniLM-L6-v2"
+    dimension: 384
+    index_path: "indices/vector.index"
+    
+  # Keyword Index
+  keyword_index:
+    backend: "whoosh"  # whoosh, fallback
+    index_dir: "indices/keyword"
+    
+  # Retrieval
+  retrieval:
+    vector_weight: 0.6
+    keyword_weight: 0.4
+    default_limit: 20
+    min_score: 0.1
+    
+  # Reranking
+  reranking:
+    enabled: true
+    signal_weights:
+      query_match: 0.3
+      text_type_match: 0.2
+      floor_relevance: 0.15
+      confidence_boost: 0.1
+      spatial_context: 0.1
+      freshness: 0.05
+      completeness: 0.1
+
+# Directory Configuration
+directories:
+  uploads: "uploads"
+  output: "output"
+  indices: "indices"
+  static: "static"
+  logs: "logs"
+
+# Logging Configuration
+logging:
+  level: "INFO"
+  format: "{time:YYYY-MM-DD HH:mm:ss} | {level} | {name}:{function}:{line} - {message}"
+  rotation: "10 MB"
+  retention: "1 week"
+  
+# Security Configuration
+security:
+  allowed_file_types:
+    - ".pdf"
+  max_pages_per_document: 500
+  rate_limit:
+    requests_per_minute: 60
+    burst_size: 10
+
+# Performance Configuration
+performance:
+  batch_size: 32
+  max_workers: 4
+  cache_size: 1000
+  timeout_seconds: 300
