@@ -39,6 +39,7 @@ class DatasetDownloader:
                 "name": "DocLayNet",
                 "description": "Human-annotated document layout segmentation dataset",
                 "url": "https://codait-cos-dax.s3.us.cloud-object-storage.appdomain.cloud/dax-doclaynet/1.0.0/DocLayNet_core.zip",
+                "hf_dataset": "nielsr/docLayNet-base",
                 "size": "7GB",
                 "categories": ["Caption", "Footnote", "Formula", "List-item", "Page-footer", 
                              "Page-header", "Picture", "Section-header", "Table", "Text", "Title"],
@@ -105,24 +106,63 @@ class DatasetDownloader:
         dataset_path = self.data_dir / dataset_key
         return dataset_path.exists() and any(dataset_path.iterdir())
     
-    def _download_file(self, url: str, filepath: Path, chunk_size: int = 8192):
-        """Download file with progress bar."""
-        response = requests.get(url, stream=True)
-        response.raise_for_status()
-        
-        total_size = int(response.headers.get('content-length', 0))
-        
-        with open(filepath, 'wb') as f, tqdm(
-            desc=filepath.name,
-            total=total_size,
-            unit='B',
-            unit_scale=True,
-            unit_divisor=1024,
-        ) as pbar:
-            for chunk in response.iter_content(chunk_size=chunk_size):
-                if chunk:
-                    f.write(chunk)
-                    pbar.update(len(chunk))
+    def download_file(self, url: str, output_path: Path, description: str = "") -> bool:
+        """Download a file with progress bar and resume capability."""
+        try:
+            # Check if file already exists and get its size
+            resume_header = {}
+            if output_path.exists():
+                existing_size = output_path.stat().st_size
+                resume_header = {'Range': f'bytes={existing_size}-'}
+                logger.info(f"Resuming download from byte {existing_size}")
+            
+            # Setup session with retries
+            session = requests.Session()
+            from requests.adapters import HTTPAdapter
+            from urllib3.util.retry import Retry
+            
+            retry_strategy = Retry(
+                total=5,
+                backoff_factor=1,
+                status_forcelist=[429, 500, 502, 503, 504],
+            )
+            adapter = HTTPAdapter(max_retries=retry_strategy)
+            session.mount("http://", adapter)
+            session.mount("https://", adapter)
+            
+            response = session.get(url, stream=True, headers=resume_header, timeout=30)
+            response.raise_for_status()
+            
+            total_size = int(response.headers.get('content-length', 0))
+            if resume_header:
+                total_size += existing_size
+            
+            mode = 'ab' if resume_header else 'wb'
+            with open(output_path, mode) as f:
+                with tqdm(
+                    total=total_size, 
+                    unit='B', 
+                    unit_scale=True, 
+                    desc=description,
+                    initial=existing_size if resume_header else 0
+                ) as pbar:
+                    for chunk in response.iter_content(chunk_size=1024*1024):  # 1MB chunks
+                        if chunk:
+                            f.write(chunk)
+                            pbar.update(len(chunk))
+            
+            logger.success(f"Downloaded {description} successfully")
+            return True
+            
+        except requests.exceptions.Timeout:
+            logger.error(f"Download timeout for {url}. Try resuming with the same command.")
+            return False
+        except requests.exceptions.ConnectionError:
+            logger.error(f"Connection error for {url}. Check internet connection.")
+            return False
+        except Exception as e:
+            logger.error(f"Failed to download {url}: {e}")
+            return False
     
     def _extract_archive(self, archive_path: Path, extract_to: Path):
         """Extract archive file."""
@@ -152,7 +192,7 @@ class DatasetDownloader:
         
         # Download main dataset
         archive_path = dataset_dir / "publaynet.tar.gz"
-        self._download_file(dataset_info["url"], archive_path)
+        self.download_file(dataset_info["url"], archive_path)
         
         # Extract
         self._extract_archive(archive_path, dataset_dir)
@@ -178,7 +218,7 @@ class DatasetDownloader:
         
         # Download main dataset
         archive_path = dataset_dir / "DocLayNet_core.zip"
-        self._download_file(dataset_info["url"], archive_path)
+        self.download_file(dataset_info["url"], archive_path, "DocLayNet")
         
         # Extract
         self._extract_archive(archive_path, dataset_dir)
@@ -210,7 +250,7 @@ class DatasetDownloader:
         
         for filename in files:
             file_path = dataset_dir / filename
-            self._download_file(f"{base_url}{filename}", file_path)
+            self.download_file(f"{base_url}{filename}", file_path, filename)
             self._extract_archive(file_path, dataset_dir)
             file_path.unlink()
         
@@ -387,7 +427,7 @@ def main():
     elif args.recommended:
         paths = downloader.download_recommended_for_architectural()
         config_path = downloader.create_training_config(["doclaynet", "funsd", "architectural_samples"])
-        print(f"\n✅ Recommended datasets downloaded. Training config: {config_path}")
+        print(f"\n Recommended datasets downloaded. Training config: {config_path}")
     elif args.dataset:
         downloader.download_dataset(args.dataset)
     elif args.all:
